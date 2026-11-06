@@ -1,0 +1,144 @@
+name: Dockerfile scans and image publishing
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  dockerfile-scans:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Hadolint, id: hadolint, image: hadolint/hadolint:v2.15.1 }
+          - { name: Semgrep, id: semgrep, image: semgrep/semgrep:1.183.0 }
+          - { name: Trivy Dockerfile, id: trivy-dockerfile, image: aquasec/trivy:0.76.1 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, persist-credentials: false }
+      - name: Prepare reports
+        run: mkdir -p "$RUNNER_TEMP/semgrep-reports"
+      - name: Run scanner
+        env:
+          SCANNER: ${{ matrix.id }}
+          REPORT_DIR: ${{ runner.temp }}/semgrep-reports
+        shell: bash
+        run: |
+          case "$SCANNER" in
+            hadolint) docker run --rm --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" --workdir /workspace --entrypoint /bin/hadolint hadolint/hadolint:v2.15.1 --format json Dockerfile 2> >(tee "$REPORT_DIR/hadolint.log" >&2) | tee "$REPORT_DIR/hadolint.json" ;;
+            semgrep) docker run --rm --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" --workdir /workspace --entrypoint semgrep semgrep/semgrep:1.183.0 scan --config p/dockerfile --error --strict --metrics=off --json Dockerfile 2> >(tee "$REPORT_DIR/semgrep.log" >&2) | tee "$REPORT_DIR/semgrep.json" ;;
+            trivy-dockerfile) docker run --rm --mount "type=bind,source=$GITHUB_WORKSPACE/Dockerfile,target=/scan/Dockerfile,readonly" --mount "type=bind,source=$GITHUB_WORKSPACE/trivy-ignore.rego,target=/scan/trivy-ignore.rego,readonly" aquasec/trivy:0.76.1 config --exit-code 1 --misconfig-scanners dockerfile --ignore-policy /scan/trivy-ignore.rego --format json /scan 2> >(tee "$REPORT_DIR/trivy-dockerfile.log" >&2) | tee "$REPORT_DIR/trivy-dockerfile.json" ;;
+          esac
+      - name: Upload scanner report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.id }}-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/semgrep-reports/*
+          retention-days: 14
+          if-no-files-found: warn
+
+  build-scan-publish:
+    needs: dockerfile-scans
+    if: ${{ needs.dockerfile-scans.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: docker/setup-buildx-action@v4
+      - name: Prepare build artifacts
+        run: |
+          mkdir -p "$RUNNER_TEMP/semgrep-reports"
+          echo "REPORT_DIR=$RUNNER_TEMP/semgrep-reports" >> "$GITHUB_ENV"
+      - name: Build Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          no-cache: true
+          pull: true
+          tags: semgrep:build
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Smoke-test image
+        run: |
+          docker run --rm semgrep:build --version
+          docker run --rm --entrypoint python semgrep:build -m pip check
+      - name: Save build metadata
+        run: docker image inspect semgrep:build > "$RUNNER_TEMP/semgrep-reports/image-metadata.json"
+      - name: Scan Docker image with Trivy
+        run: |
+          docker run --rm \
+            --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
+            aquasec/trivy:0.76.1 image --image-src docker --scanners vuln --exit-code 1 \
+            --format json \
+            semgrep:build \
+            2> >(tee "$REPORT_DIR/trivy-image.log" >&2) | tee "$REPORT_DIR/trivy-image.json"
+      - name: Validate Docker Hub username
+        id: dockerhub
+        if: ${{ github.event_name != 'pull_request' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/')) }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          username="$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')"
+          [[ "$username" =~ ^[a-z0-9][a-z0-9_-]{0,127}$ ]] || { echo '::error::Invalid Docker Hub username.'; exit 1; }
+          echo "username=$username" >> "$GITHUB_OUTPUT"
+      - name: Log in to Docker Hub
+        if: ${{ steps.dockerhub.outcome == 'success' }}
+        uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: ${{ steps.dockerhub.outputs.username }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Determine image version
+        id: version
+        shell: bash
+        run: |
+          mapfile -t tags < <(git tag --sort=-version:refname)
+          tag="${tags[0]:-0}"
+          [[ "$tag" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]] || exit 1
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+      - name: Generate image metadata
+        id: metadata
+        if: ${{ steps.dockerhub.outcome == 'success' }}
+        uses: docker/metadata-action@v5
+        with:
+          images: docker.io/${{ steps.dockerhub.outputs.username }}/semgrep
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=latest
+      - name: Push scanned Docker image
+        if: ${{ steps.metadata.outcome == 'success' }}
+        env:
+          IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+        run: |
+          while IFS= read -r tag; do
+            docker tag semgrep:build "$tag"
+            docker push "$tag"
+          done <<< "$IMAGE_TAGS"
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/semgrep-reports/image-metadata.json
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Upload Trivy image reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: trivy-image-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/semgrep-reports/trivy-image.*
+          retention-days: 14
+          if-no-files-found: warn

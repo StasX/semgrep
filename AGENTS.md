@@ -8,7 +8,7 @@ This is a command-line tooling image, not a service or web application.
 - Install Semgrep in /opt/semgrep-venv and keep it on PATH.
 - Run as UID/GID 10001 with a writable home.
 - Preserve scanner exit codes. Never suppress findings simply to pass CI.
-- Keep Hadolint and Trivy in separate CI containers, outside the runtime image.
+- Keep Hadolint, Checkov, and Trivy in separate CI containers, outside the runtime image.
 - Publish only the exact image that passed checks, on default-branch or tag runs.
 - Keep documentation and commands consistent with the Docker entrypoint.
 - Do not commit credentials, generated reports, or personal configuration.

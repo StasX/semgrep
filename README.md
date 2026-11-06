@@ -4,7 +4,7 @@ Licensed under the [MIT License](LICENSE).
 
 A reusable Python Docker image for Semgrep Community Edition code scanning,
 modeled on [StasX/checkov](https://github.com/StasX/checkov).
-The runtime image contains Semgrep, with Hadolint and Trivy used separately in CI.
+The runtime image contains Semgrep, with Hadolint, Checkov, and Trivy used separately in CI.
 
 ## Image
 
@@ -63,7 +63,7 @@ output. The entrypoint already supplies `semgrep`, so arguments start with
 [GitHub Actions](.github/workflows/main.yml) runs on pushes, pull requests, and
 manual dispatch:
 
-1. Scan the Dockerfile in independent matrix jobs: Hadolint 2.15.1,
+1. Scan the Dockerfile in independent matrix jobs: Hadolint 2.15.1, Checkov 3.4.3,
    Semgrep 1.183.0 with `p/dockerfile`, and Trivy 0.76.1.
 2. Build with `--pull` and no cache only after all checks pass.
 3. Check the CLI and dependency compatibility.
@@ -77,6 +77,9 @@ Scanner errors and findings fail CI and block publishing. Matrix jobs use
 Bash pipefail preserves failures when output passes through `tee`.
 The narrow `trivy-ignore.rego` policy excludes only the intentionally absent
 Docker health check (DS-0026); no vulnerability exemptions are carried over.
+Checkov likewise skips only the health-check rule (CKV_DOCKER_2) for this
+command-line image. Its JSON report and diagnostic log are uploaded as
+`checkov-reports-<run-id>-<attempt>`, including after failures.
 
 Separate JSON reports and diagnostic logs are uploaded for each scanner even
 after failure, when generated. Image metadata has its own artifact.

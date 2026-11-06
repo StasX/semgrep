@@ -1,0 +1,16 @@
+# User-approved exceptions for the eight remaining image findings, 2026-11-06.
+# Review when Semgrep or pip updates; all other vulnerabilities still block CI.
+
+# Semgrep 1.184.0 requires mcp==1.29.0.
+CVE-2026-116684
+CVE-2026-116685
+CVE-2026-116686
+CVE-2026-59951
+
+# Semgrep 1.184.0 constrains OpenTelemetry to 1.37.x.
+CVE-2026-114603
+
+# setuptools 70.3.0 declared by pip 26.3's bundled SBOM.
+CVE-2025-47273
+CVE-2026-59890
+GHSA-xmj3-9gf7-h52w

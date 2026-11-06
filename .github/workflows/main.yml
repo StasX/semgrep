@@ -82,8 +82,9 @@ jobs:
         run: |
           docker run --rm \
             --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/.trivyignore,target=/scan/.trivyignore,readonly" \
             aquasec/trivy:0.76.1 image --image-src docker --scanners vuln --exit-code 1 \
-            --format json \
+            --format json --ignorefile /scan/.trivyignore \
             semgrep:build \
             2> >(tee "$REPORT_DIR/trivy-image.log" >&2) | tee "$REPORT_DIR/trivy-image.json"
       - name: Validate Docker Hub username

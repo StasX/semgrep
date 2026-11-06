@@ -11,7 +11,7 @@ The runtime image contains Semgrep, with Hadolint, Checkov, and Trivy used separ
 | Component | Configuration |
 | --- | --- |
 | Base | `python:3.13-alpine` (musl Linux) |
-| Semgrep | `1.183.0`, pinned in `requirements.txt` |
+| Semgrep | `1.184.0`, pinned in `requirements.txt` |
 | Installation | `/opt/semgrep-venv`, available on `PATH` |
 | User | Non-root UID/GID `10001`, home `/home/semgrep` |
 | Working directory | `/workspace` |
@@ -22,6 +22,18 @@ dependencies and the base-image digest are not locked. Registry rules can change
 independently of the pinned scanner. Metrics and version checks are disabled.
 There is no health check because this image runs a command and exits.
 Bind-mounted targets must be readable by UID 10001.
+
+Both system Python and the Semgrep environment use pip 26.3 to update its bundled
+dependencies. Installation eagerly upgrades dependencies within Semgrep's
+constraints, with urllib3 at least 2.8.0. Semgrep 1.184.0 still requires
+`mcp==1.29.0` and OpenTelemetry 1.37.x, which have reported vulnerabilities;
+their fixes require an upstream-compatible Semgrep release. The Trivy publishing
+gate remains enabled, with these findings explicitly excepted in `.trivyignore`
+at the user's request.
+The rebuilt image scan reports 8 findings, down from 13: four in MCP, one in
+OpenTelemetry, and three for setuptools 70.3.0 declared by pip 26.3's bundled
+SBOM. Updating standalone setuptools would not update that bundled component.
+The full local scan report is saved to `reports/trivy-image.json` (ignored by Git).
 
 ## Build and verify
 
@@ -76,7 +88,8 @@ Scanner errors and findings fail CI and block publishing. Matrix jobs use
 `fail-fast: false`, so one failing scanner does not stop the other scanners.
 Bash pipefail preserves failures when output passes through `tee`.
 The narrow `trivy-ignore.rego` policy excludes only the intentionally absent
-Docker health check (DS-0026); no vulnerability exemptions are carried over.
+Docker health check (DS-0026). The image scan uses `.trivyignore` for the eight
+user-approved vulnerability exceptions; other findings still block publishing.
 Checkov likewise skips only the health-check rule (CKV_DOCKER_2) for this
 command-line image. Its JSON report and diagnostic log are uploaded as
 `checkov-reports-<run-id>-<attempt>`, including after failures.
@@ -96,8 +109,9 @@ Create a Docker Hub repository named `semgrep`. Add these GitHub Actions secrets
 - `DOCKERHUB_USERNAME`: the account owning the repository.
 - `DOCKERHUB_TOKEN`: an access token allowed to push to that repository.
 
-No vulnerability exemptions are configured. Scan results change with the
-vulnerability database; any reported vulnerability blocks publishing.
+Review `.trivyignore` when updating Semgrep or pip and remove exceptions once
+fixed. Scan results change with the vulnerability database; any non-exempted
+vulnerability blocks publishing.
 
 ## Assistant guidance
 

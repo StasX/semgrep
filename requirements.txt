@@ -1,2 +1,4 @@
 # Semgrep is pinned; transitive dependencies are not locked.
 semgrep==1.184.0
+# Security floor for Semgrep's HTTP dependency.
+urllib3>=2.8.0,<3

@@ -7,7 +7,8 @@ This is a command-line tooling image, not a service or web application.
 - Use the Python Alpine base image and Alpine package/user management commands.
 - Install Semgrep in /opt/semgrep-venv and keep it on PATH.
 - Run as UID/GID 10001 with a writable home.
-- Preserve scanner exit codes. Never suppress findings simply to pass CI.
+- Preserve scanner exit codes. Only suppress findings explicitly approved by the user;
+  the eight approved image exceptions are documented in .trivyignore.
 - Keep Hadolint, Checkov, and Trivy in separate CI containers, outside the runtime image.
 - Publish only the exact image that passed checks, on default-branch or tag runs.
 - Keep documentation and commands consistent with the Docker entrypoint.

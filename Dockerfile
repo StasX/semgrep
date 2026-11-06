@@ -1,13 +1,15 @@
 FROM python:3.13-alpine
 
 RUN apk upgrade --no-cache \
-    && apk add --no-cache git=2.54.0-r0 ca-certificates=20261020-r0
+    && apk add --no-cache git=2.54.0-r0 ca-certificates=20261020-r0 \
+    && python -m pip install --no-cache-dir --upgrade pip==26.3
 
 COPY requirements.txt /tmp/requirements.txt
 
 RUN python -m venv /opt/semgrep-venv \
+    && /opt/semgrep-venv/bin/python -m pip install --no-cache-dir --upgrade pip==26.3 \
     && /opt/semgrep-venv/bin/python -m pip install --no-cache-dir \
-        --upgrade -r /tmp/requirements.txt \
+        --upgrade --upgrade-strategy eager -r /tmp/requirements.txt \
     && /opt/semgrep-venv/bin/python -m pip check
 
 ENV PATH="/opt/semgrep-venv/bin:$PATH" \

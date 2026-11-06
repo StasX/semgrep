@@ -1,2 +1,2 @@
 # Semgrep is pinned; transitive dependencies are not locked.
-semgrep==1.183.0
+semgrep==1.184.0

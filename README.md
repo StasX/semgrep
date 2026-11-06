@@ -99,10 +99,10 @@ after failure, when generated. Image metadata has its own artifact.
 Artifact names end in the run ID and attempt and are retained for 14 days.
 Build output is available in the Actions logs/build summary.
 
-The version is the highest Git tag using `git tag --sort=-version:refname`,
-or `0` when no tags exist, plus `latest`. Tags label the checked-out commit;
-they do not change its source checkout. Published names are
-`docker.io/<username>/semgrep:<version>` and `docker.io/<username>/semgrep:latest`.
+Tag runs publish `docker.io/<username>/semgrep:<triggering-tag>` using the exact
+Git tag that triggered the run. Default-branch runs publish only
+`docker.io/<username>/semgrep:latest`. Rebuilding an older tag updates only that
+tag's image. Git tags must be valid Docker tags; invalid names fail publishing.
 
 Create a Docker Hub repository named `semgrep`. Add these GitHub Actions secrets:
 

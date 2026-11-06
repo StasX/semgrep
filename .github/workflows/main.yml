@@ -105,10 +105,13 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Determine image version
         id: version
+        if: ${{ steps.dockerhub.outcome == 'success' }}
         shell: bash
         run: |
-          mapfile -t tags < <(git tag --sort=-version:refname)
-          tag="${tags[0]:-0}"
+          tag=latest
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
           [[ "$tag" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]] || exit 1
           echo "version=$tag" >> "$GITHUB_OUTPUT"
       - name: Generate image metadata
@@ -117,9 +120,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: docker.io/${{ steps.dockerhub.outputs.username }}/semgrep
+          flavor: latest=false
           tags: |
             type=raw,value=${{ steps.version.outputs.version }}
-            type=raw,value=latest
       - name: Push scanned Docker image
         if: ${{ steps.metadata.outcome == 'success' }}
         env:
